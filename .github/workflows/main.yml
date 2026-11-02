@@ -11,11 +11,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Unzip project (Siraj-APK.zip in repo root)
+      - name: Prepare project
         run: |
-          test -f Siraj-APK.zip || { echo "Siraj-APK.zip not found in repo root"; exit 1; }
-          unzip -q Siraj-APK.zip -d project
-          SETTINGS=$(find project -name settings.gradle.kts -not -path "*/__MACOSX/*" | head -n1)
+          ZIP=$(find . -maxdepth 2 -iname "*siraj*.zip" -not -path "./.git/*" | head -n1)
+          if [ -n "$ZIP" ]; then
+            echo "Using $ZIP"
+            unzip -q "$ZIP" -d project
+            SETTINGS=$(find project -name settings.gradle.kts -not -path "*/__MACOSX/*" | head -n1)
+          else
+            SETTINGS=$(find . -name settings.gradle.kts -not -path "./.git/*" | head -n1)
+          fi
+          if [ -z "$SETTINGS" ]; then
+            echo "No project found. Files in repo:"
+            ls -la
+            exit 1
+          fi
           echo "PROJECT_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
