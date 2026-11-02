@@ -26,9 +26,10 @@ jobs:
       - name: Extract project
         run: unzip -q Siraj-APK.zip -d project
 
-      - name: Build APK
-        run: gradle -p project -c project/settings.gradle assembleDebug --no-daemon
-
+            - name: Build APK
+        run: |
+          cd project
+          gradle -c settings.gradle assembleDebug --no-daemon
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
