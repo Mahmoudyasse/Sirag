@@ -25,7 +25,6 @@ jobs:
       - name: Extract project
         run: |
           unzip -q siraj-apk-logo-updated.zip -d project
-
       - name: Build APK
         run: |
           cd project
