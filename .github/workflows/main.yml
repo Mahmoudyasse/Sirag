@@ -23,12 +23,12 @@ jobs:
           gradle-version: '8.5'
 
       - name: Extract project
-        run: unzip -q siraj-apk-logo-updated.zip -d project
+        run: unzip -q Siraj-APK.zip -d project
 
       - name: Build APK
         run: |
           cd project
-          gradle -c settings.gradle assembleDebug --no-daemon
+          gradle assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
