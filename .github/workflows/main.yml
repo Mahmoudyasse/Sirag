@@ -24,17 +24,13 @@ jobs:
           gradle-version: '8.5'
 
       - name: Extract project
-        run: |
-          unzip -q Siraj-APK.zip -d project
-          find project -maxdepth 3 -type f | head -50
+        run: unzip -q Siraj-APK.zip -d project
 
       - name: Build APK
-        run: |
-          cd project
-          gradle assembleDebug --no-daemon
+        run: gradle -p project -c project/settings.gradle assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Siraj-APK
-          path: project/**/build/outputs/apk/debug/*.apk
+          path: project/app/build/outputs/apk/debug/*.apk
