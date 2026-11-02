@@ -1,0 +1,28 @@
+plugins { id 'com.android.application' }
+
+def cfg = new Properties()
+file("../app.properties").withReader('UTF-8') { cfg.load(it) }
+
+android {
+    namespace 'com.webapp.shell'
+    compileSdk 34
+    defaultConfig {
+        applicationId cfg['packageId']
+        minSdk 24
+        targetSdk 34
+        versionCode cfg['versionCode'].toInteger()
+        versionName cfg['versionName']
+        resValue "string", "app_name", cfg['appName']
+    }
+    buildTypes {
+        release { minifyEnabled false }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.9.0'
+}
