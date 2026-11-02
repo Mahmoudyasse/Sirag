@@ -1,3 +1,4 @@
+
 name: Build Siraj APK
 
 on:
@@ -25,6 +26,8 @@ jobs:
       - name: Extract project
         run: |
           unzip -q siraj-apk-logo-updated.zip -d project
+          find project -maxdepth 3 -type f | head -50
+
       - name: Build APK
         run: |
           cd project
@@ -34,4 +37,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Siraj-APK
-          path: project/app/build/outputs/apk/debug/*.apk
+          path: project/**/build/outputs/apk/debug/*.apk
