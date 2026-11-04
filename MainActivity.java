@@ -3,6 +3,7 @@ package com.webapp.shell;
 import android.Manifest;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -12,11 +13,13 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.GeolocationPermissions;
@@ -35,6 +38,10 @@ import androidx.webkit.WebViewAssetLoader;
 
 import org.json.JSONObject;
 
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.HashMap;
 import java.util.Map;
 
 public class MainActivity extends Activity {
@@ -80,9 +87,6 @@ public class MainActivity extends Activity {
 
         // Create the notification channel at startup so it shows up in system settings
         Notifier.createChannel(this);
-        if (Build.VERSION.SDK_INT >= 33 && !Notifier.enabled(this)) {
-            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIF);
-        }
 
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.parseColor("#04140F"));
@@ -111,7 +115,9 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
-                return loader.shouldInterceptRequest(r.getUrl());
+                WebResourceResponse res = loader.shouldInterceptRequest(r.getUrl());
+                if (res != null) return res;
+                return proxyCors(r);
             }
 
             @Override
@@ -186,6 +192,133 @@ public class MainActivity extends Activity {
 
         if (b != null) web.restoreState(b);
         else web.loadUrl("https://appassets.androidplatform.net/assets/index.html");
+
+        ensureNotifications();
+    }
+
+    // ---------------- Notifications: permission + settings ----------------
+    private void ensureNotifications() {
+        if (Notifier.enabled(this)) { Notifier.welcomeOnce(this); return; }
+        if (Build.VERSION.SDK_INT >= 33) {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIF);
+        } else {
+            askOpenNotifSettings(false);
+        }
+    }
+
+    private void askOpenNotifSettings(boolean force) {
+        if (isFinishing()) return;
+        SharedPreferences sp = getSharedPreferences("siraj_ui", MODE_PRIVATE);
+        int n = sp.getInt("asked", 0);
+        if (!force && n >= 3) return;
+        sp.edit().putInt("asked", n + 1).apply();
+        new AlertDialog.Builder(this)
+            .setTitle("الإشعارات مقفولة")
+            .setMessage("فعّل الإشعارات عشان توصلك تنبيهات سراج.")
+            .setPositiveButton("فتح الإعدادات", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) { openNotifSettings(); }
+            })
+            .setNegativeButton("لاحقاً", null)
+            .show();
+    }
+
+    private void openNotifSettings() {
+        try {
+            Intent i;
+            if (Build.VERSION.SDK_INT >= 26) {
+                i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                i.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            } else {
+                i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+            }
+            startActivity(i);
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+            } catch (Exception e2) { }
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (Notifier.enabled(this)) Notifier.welcomeOnce(this);
+    }
+
+    // ---------------- CORS proxy for cross-origin fetch/XHR ----------------
+    // The page is served from https://appassets.androidplatform.net, so fetch()
+    // to other sites (audio downloads, APIs) is blocked unless the remote server
+    // sends CORS headers. We fetch those requests natively and add the headers.
+    private WebResourceResponse proxyCors(WebResourceRequest r) {
+        try {
+            if (!"GET".equalsIgnoreCase(r.getMethod())) return null;
+            Uri u = r.getUrl();
+            String scheme = u.getScheme();
+            if (!"http".equals(scheme) && !"https".equals(scheme)) return null;
+            if ("appassets.androidplatform.net".equals(u.getHost())) return null;
+
+            Map<String, String> h = r.getRequestHeaders();
+            String origin = null;
+            for (Map.Entry<String, String> e : h.entrySet()) {
+                if ("Origin".equalsIgnoreCase(e.getKey())) origin = e.getValue();
+            }
+            if (origin == null) return null; // not a CORS request, let WebView handle it
+
+            String url = u.toString();
+            HttpURLConnection c = null;
+            for (int i = 0; i < 6; i++) {
+                c = (HttpURLConnection) new URL(url).openConnection();
+                c.setInstanceFollowRedirects(false);
+                c.setConnectTimeout(20000);
+                c.setReadTimeout(60000);
+                for (Map.Entry<String, String> e : h.entrySet()) {
+                    String k = e.getKey();
+                    if ("Origin".equalsIgnoreCase(k) || "Referer".equalsIgnoreCase(k)
+                        || "Host".equalsIgnoreCase(k) || "Accept-Encoding".equalsIgnoreCase(k)) continue;
+                    c.setRequestProperty(k, e.getValue());
+                }
+                int code = c.getResponseCode();
+                if (code >= 300 && code < 400 && code != 304) {
+                    String loc = c.getHeaderField("Location");
+                    if (loc == null) break;
+                    url = new URL(new URL(url), loc).toString();
+                    c.disconnect();
+                    continue;
+                }
+                break;
+            }
+
+            int code = c.getResponseCode();
+            if (code < 200 || code >= 300) {
+                // let WebView see the real error
+                c.disconnect();
+                return null;
+            }
+            String ct = c.getContentType();
+            String mime = "application/octet-stream";
+            String enc = null;
+            if (ct != null) {
+                mime = ct.split(";")[0].trim();
+                int ci = ct.toLowerCase().indexOf("charset=");
+                if (ci >= 0) enc = ct.substring(ci + 8).trim();
+            }
+            Map<String, String> rh = new HashMap<String, String>();
+            rh.put("Access-Control-Allow-Origin", origin);
+            rh.put("Access-Control-Allow-Credentials", "true");
+            rh.put("Access-Control-Allow-Headers", "*");
+            rh.put("Access-Control-Expose-Headers", "*");
+            String cr = c.getHeaderField("Content-Range");
+            if (cr != null) rh.put("Content-Range", cr);
+            String ar = c.getHeaderField("Accept-Ranges");
+            if (ar != null) rh.put("Accept-Ranges", ar);
+
+            String reason = c.getResponseMessage();
+            if (reason == null || reason.length() == 0) reason = "OK";
+            InputStream in = c.getInputStream();
+            return new WebResourceResponse(mime, enc, code, reason, rh, in);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
@@ -198,6 +331,7 @@ public class MainActivity extends Activity {
         }
         if (code == REQ_NOTIF && web != null) {
             boolean ok = res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED;
+            if (ok) Notifier.welcomeOnce(this); else askOpenNotifSettings(false);
             web.evaluateJavascript(
                 "window.__sirajPerm&&window.__sirajPerm('" + (ok ? "granted" : "denied") + "')", null);
         }
@@ -257,7 +391,7 @@ public class MainActivity extends Activity {
     // ================================================================
     // JS <-> native bridge (window.SirajNative)
     // ================================================================
-    private class Bridge {
+    public class Bridge {
         @JavascriptInterface
         public void notify(String tag, String title, String body) {
             Notifier.show(MainActivity.this, Notifier.idOf(tag), title, body);
@@ -290,8 +424,10 @@ public class MainActivity extends Activity {
                     if (Build.VERSION.SDK_INT >= 33 && !Notifier.enabled(MainActivity.this)) {
                         requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIF);
                     } else {
+                        boolean on = Notifier.enabled(MainActivity.this);
+                        if (!on) askOpenNotifSettings(true);
                         web.evaluateJavascript(
-                            "window.__sirajPerm&&window.__sirajPerm('" + (Notifier.enabled(MainActivity.this) ? "granted" : "denied") + "')", null);
+                            "window.__sirajPerm&&window.__sirajPerm('" + (on ? "granted" : "denied") + "')", null);
                     }
                 }
             });
@@ -324,6 +460,13 @@ public class MainActivity extends Activity {
             NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
             if (Build.VERSION.SDK_INT >= 24) return nm.areNotificationsEnabled();
             return true;
+        }
+
+        static void welcomeOnce(Context c) {
+            SharedPreferences sp = c.getSharedPreferences("siraj_ui", Context.MODE_PRIVATE);
+            if (sp.getBoolean("welcomed", false)) return;
+            sp.edit().putBoolean("welcomed", true).apply();
+            show(c, 1, "سراج", "تم تفعيل الإشعارات بنجاح");
         }
 
         static int icon(Context c) {
