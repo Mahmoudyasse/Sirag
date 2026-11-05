@@ -29,15 +29,7 @@ jobs:
           PDIR=$(dirname "$SETTINGS")
           echo "PROJECT_DIR=$PDIR" >> "$GITHUB_ENV"
 
-          # Overlay the latest files from the repo on top of the zip project
-          for f in MainActivity.java AndroidManifest.xml; do
-            T=$(find "$PDIR" -name "$f" -not -path "*/build/*" | head -n1)
-            if [ -f "$f" ] && [ -n "$T" ]; then
-              cp "$f" "$T"; echo "Overlay: $f -> $T"
-            else
-              echo "WARNING: could not overlay $f"
-            fi
-          done
+          # Overlay only the latest index.html on top of the zip project
           if [ -f app/src/main/assets/index.html ]; then SRC=app/src/main/assets/index.html; else SRC=index.html; fi
           T=$(find "$PDIR" -path "*src/main/assets/index.html" | head -n1)
           if [ -f "$SRC" ] && [ -n "$T" ]; then
