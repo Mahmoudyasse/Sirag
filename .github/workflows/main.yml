@@ -26,7 +26,25 @@ jobs:
             ls -la
             exit 1
           fi
-          echo "PROJECT_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
+          PDIR=$(dirname "$SETTINGS")
+          echo "PROJECT_DIR=$PDIR" >> "$GITHUB_ENV"
+
+          # Overlay the latest files from the repo on top of the zip project
+          for f in MainActivity.java AndroidManifest.xml; do
+            T=$(find "$PDIR" -name "$f" -not -path "*/build/*" | head -n1)
+            if [ -f "$f" ] && [ -n "$T" ]; then
+              cp "$f" "$T"; echo "Overlay: $f -> $T"
+            else
+              echo "WARNING: could not overlay $f"
+            fi
+          done
+          if [ -f app/src/main/assets/index.html ]; then SRC=app/src/main/assets/index.html; else SRC=index.html; fi
+          T=$(find "$PDIR" -path "*src/main/assets/index.html" | head -n1)
+          if [ -f "$SRC" ] && [ -n "$T" ]; then
+            cp "$SRC" "$T"; echo "Overlay: $SRC -> $T"
+          else
+            echo "WARNING: could not overlay index.html"
+          fi
 
       - uses: actions/setup-java@v4
         with:
@@ -35,7 +53,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.7"
+          gradle-version: "8.9"
 
       - name: Build debug APK
         working-directory: ${{ env.PROJECT_DIR }}
