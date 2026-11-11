@@ -1,4 +1,3 @@
-
 name: Build Siraj APK
 
 on:
@@ -14,17 +13,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check project
+      - name: Check project archive
         run: |
-          ls -la
-          test -f siraj_android.zip || (echo "siraj_android.zip not found" && exit 1)
+          test -f siraj_android.zip || (echo "::error::siraj_android.zip not found" && exit 1)
 
-      - name: Unpack project
+      - name: Unpack and locate Android project
         run: |
           rm -rf proj
-          mkdir proj
+          mkdir -p proj
           unzip -q siraj_android.zip -d proj
-          test -f proj/settings.gradle || (echo "settings.gradle not found" && exit 1)
+          PROJECT_DIR="$(find "$GITHUB_WORKSPACE/proj" -type f -name settings.gradle -printf '%h\n' | head -n 1)"
+          if [ -z "$PROJECT_DIR" ]; then
+            PROJECT_DIR="$(find "$GITHUB_WORKSPACE/proj" -type f -name settings.gradle.kts -printf '%h\n' | head -n 1)"
+          fi
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "::error::No settings.gradle or settings.gradle.kts found inside siraj_android.zip"
+            find proj -maxdepth 4 -type f | head -80
+            exit 1
+          fi
+          if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "::error::The located project has no app/build.gradle or app/build.gradle.kts"
+            find "$PROJECT_DIR" -maxdepth 3 -type f | head -80
+            exit 1
+          fi
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found Android project at: $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -33,11 +46,11 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses and install packages
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
-          yes | sdkmanager --licenses
+          yes | sdkmanager --licenses || true
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Set up Gradle
@@ -46,10 +59,11 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build APK
-        run: gradle -p proj :app:assembleDebug --stacktrace
+        run: gradle -p "$PROJECT_DIR" :app:assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Siraj-debug-apk
-          path: proj/app/build/outputs/apk/debug/app-debug.apk
+          path: proj/**/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
