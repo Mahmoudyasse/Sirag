@@ -1,3 +1,4 @@
+
 name: Build Siraj APK
 
 on:
@@ -24,8 +25,10 @@ jobs:
         run: |
           rm -rf proj && mkdir proj
           unzip -q siraj_android.zip -d proj
-          ls proj
           test -f proj/settings.gradle.kts || (echo "::error::settings.gradle.kts مش موجود، الزيب متفتح غلط" && exit 1)
+          mkdir -p proj/app/src/main/assets/adhan
+          for f in tobar.mp3 qassas.mp3; do if [ -f "$f" ]; then cp "$f" proj/app/src/main/assets/adhan/; echo "added $f"; fi; done
+          ls proj/app/src/main/assets/adhan
 
       - name: Set up Java
         uses: actions/setup-java@v5
